@@ -1,5 +1,4 @@
 package com.lyricmind.model.dto;
 
-public class BulkSongRequest {
+public record BulkSongRequest(String fileName){};
 
-}
