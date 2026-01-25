@@ -11,6 +11,8 @@ import org.springframework.stereotype.Service;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -85,4 +87,37 @@ public class RecommendationService {
         }
     }
 
+    private List<Document> rerankCandidates(String mood, List<Document> candidates){
+        // AI RERANKING: Refines vector search results using OpenAI chat model
+        // Calls RerankComponent.rerank() -> LLM reorders by true mood relevance
+        // Adds "motivation" metadata to each Document explaining ranking
+        // Input: Raw vector search candidates, Output: Ranked + enriched results
+
+        try{
+            // EXECUTE AI RERANKING: OpenAI analyzes mood + song metadata
+            // Returns Documents sorted by semantic relevance (most relevant first)
+            // Each Document gets "motivation" metadata (e.g., "Upbeat matches happy")
+            List<Document> rerankedResults = rerankComponent.rerank(mood, candidates);
+
+            log.debug("Re-ranked {} candidates for mood: '{}' (original: {})",
+                    rerankedResults.size(), mood, candidates.size());
+            return rerankedResults;
+
+        }catch (Exception e){
+            // ERROR HANDLING: AI API timeout, JSON parsing, or prompt failures
+            log.error("Failed to re-rank candidates for mood: '{}'. Returning original candidates.", mood, e);
+            return candidates;
+        }
+
+
+    }
+
+    private List<SongRecommendationResponse> mapDocumentsToRecommendations(List<Document> documents, int limit) {
+        return documents.stream()
+                .limit(limit)
+                .map(this::mapDocumentToRecommendation)
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .collect(Collectors.toList());
+    }
 }
