@@ -3,7 +3,6 @@ package com.lyricmind.controller;
 import com.lyricmind.model.dto.MusicRequest;
 import com.lyricmind.model.dto.SongRecommendationResponse;
 import org.slf4j.Logger;
-import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.lyricmind.service.RecommendationService;
 import org.springframework.beans.factory.annotation.Autowired;
