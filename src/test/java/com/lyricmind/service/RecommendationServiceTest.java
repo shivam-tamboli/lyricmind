@@ -51,4 +51,9 @@ public class RecommendationServiceTest {
         testDocument = new Document("Test Content", metadate);
     }
 
+    @Test
+    void recommendSongs_ValidInput_ReturnsRecommendations() {
+
+    }
+
 }
