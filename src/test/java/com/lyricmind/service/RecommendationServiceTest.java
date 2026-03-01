@@ -4,6 +4,7 @@ import com.lyricmind.component.RerankComponent;
 import com.lyricmind.component.SemanticQueryComponent;
 import com.lyricmind.repository.SongRepository;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -19,4 +20,7 @@ public class RecommendationServiceTest {
 
     @Mock
     private SemanticQueryComponent semanticQueryComponent;
+
+    @InjectMocks
+    private RecommendationService recommendationService;
 }
