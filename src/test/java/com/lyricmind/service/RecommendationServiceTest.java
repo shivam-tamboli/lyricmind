@@ -118,6 +118,62 @@ public class RecommendationServiceTest {
         verify(songRepository).findById("song123");
     }
 
+    @Test
+    void recommendSongs_SongNotFound_FiltersOur() {
+
+        String mood = "happy";
+        int limit = 5;
+
+        List<Document> candidates = List.of(testDocument);
+
+        when(semanticQueryComponent.similaritySearch(mood, limit)).thenReturn(candidates);
+        when(rerankComponent.rerank(mood, candidates)).thenReturn(candidates);
+        when(songRepository.findById("song123")).thenReturn(Optional.empty());
+
+        List<SongRecommendationResponse> result = recommendationService.recommendSongs(mood, limit);
+
+        assertNotNull(result);
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void recommendSongs_SemanticSearchFailure_ThrowsException() {
+        // Given
+        String mood = "happy";
+        int limit = 5;
+
+        when(semanticQueryComponent.similaritySearch(mood, limit))
+                .thenThrow(new RuntimeException("Search failed"));
+
+        // When & Then
+        RuntimeException exception = assertThrows(RuntimeException.class,
+                () -> recommendationService.recommendSongs(mood, limit));
+
+        assertEquals("Recommendation failed", exception.getMessage());
+    }
+
+    @Test
+    void recommendSongs_MissingSongId_FiltersOut() {
+        String mood = "happy";
+        int limit = 5;
+
+        Map<String, Object> metadataWithoutSongId = new HashMap<>();
+        metadataWithoutSongId.put("motivation", "Test motivation");
+        Document docWithoutSongId = new Document("Test Content", metadataWithoutSongId);
+
+        List<Document> candidates = List.of(docWithoutSongId);
+
+        when(semanticQueryComponent.similaritySearch(mood, limit)).thenReturn(candidates);
+        when(rerankComponent.rerank(mood, candidates)).thenReturn(candidates);
+
+        List<SongRecommendationResponse> result = recommendationService.recommendSongs(mood, limit);
+
+        assertNotNull(result);
+        assertTrue(result.isEmpty());
+        verifyNoInteractions(songRepository);
+    }
+
+
 
 
 }
