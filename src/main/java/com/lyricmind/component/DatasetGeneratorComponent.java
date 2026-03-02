@@ -4,11 +4,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lyricmind.model.dto.SongRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
 import java.io.BufferedReader;
-import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -23,7 +24,10 @@ public class DatasetGeneratorComponent {
     public List<SongRequest> generateSongRequestFromCSV(String csvFilePath) throws IOException {
         List<Map<String, Object>> songs = new ArrayList<>();
 
-        try (BufferedReader reader = new BufferedReader(new FileReader(csvFilePath))) {
+        ClassPathResource resource = new ClassPathResource(csvFilePath);
+        try (BufferedReader reader = new BufferedReader(
+       //try (BufferedReader reader = new BufferedReader(new FileReader(csvFilePath))) {
+                new InputStreamReader(resource.getInputStream()))) {
             String headerLine = reader.readLine();
             if (headerLine == null) {
                 throw new IOException("File CSV vuoto");
