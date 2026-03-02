@@ -3,6 +3,7 @@ package com.lyricmind.service;
 import com.lyricmind.component.RerankComponent;
 import com.lyricmind.component.SemanticQueryComponent;
 import com.lyricmind.model.Song;
+import com.lyricmind.model.dto.SongRecommendationResponse;
 import com.lyricmind.repository.SongRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -11,9 +12,17 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+
 import org.springframework.ai.document.Document;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 
 @ExtendWith(MockitoExtension.class)                                    //Enable mock injection automatically
@@ -53,7 +62,25 @@ public class RecommendationServiceTest {
 
     @Test
     void recommendSongs_ValidInput_ReturnsRecommendations() {
+        String mood = "happy";
+        int limit = 5;
 
+        List<Document> candidates = List.of(testDocument);
+        List<Document> reranked = List.of(testDocument);
+
+        when(semanticQueryComponent.similaritySearch(mood, limit)).thenReturn(candidates);
+        when(rerankComponent.rerank(mood, candidates)).thenReturn(reranked);
+        when(songRepository.findById("song123")).thenReturn(Optional.of(testSong));
+
+        List<SongRecommendationResponse> result = recommendationService.recommendSongs(mood, limit);
+
+        assertNotNull(result);
+        assertEquals(1, result.size());
+        verify(semanticQueryComponent).similaritySearch(mood, limit);
+        verify(rerankComponent).rerank(mood, candidates);
+        verify(songRepository).findById("song123");
     }
+
+
 
 }
