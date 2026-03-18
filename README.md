@@ -217,6 +217,24 @@ lyricmind/
 - MongoDB Atlas cluster with Vector Search index
 - OpenAI API key
 
+### 0. Set backend environment variables
+
+Before running locally or deploying, configure these variables:
+
+- `SPRING_DATA_MONGODB_URI`
+- `SPRING_DATA_MONGODB_DATABASE` (optional, default: `lyricmind`)
+- `SPRING_AI_OPENAI_API_KEY`
+- `SPRING_AI_OPENAI_EMBEDDING_MODEL` (optional, default: `text-embedding-3-large`)
+- `SPRING_AI_OPENAI_CHAT_MODEL` (optional, default: `gpt-4o-mini`)
+
+Example (macOS/Linux):
+
+```bash
+export SPRING_DATA_MONGODB_URI='mongodb+srv://<user>:<password>@<cluster>/<db>?retryWrites=true&w=majority'
+export SPRING_DATA_MONGODB_DATABASE='lyricmind'
+export SPRING_AI_OPENAI_API_KEY='sk-...'
+```
+
 ### 1. Start the Backend
 
 ```bash
@@ -242,106 +260,30 @@ Open the URL shown in the terminal (e.g., `http://localhost:5173`).
 
 ---
 
-## 🧪 Testing with curl
+## Render Deployment (Backend)
 
-### Recommend songs by mood
+This repository includes `render.yaml` for Render Blueprint deployment.
+
+### Deploy steps
+
+1. Push the latest code to GitHub.
+2. In Render, choose **New +** -> **Blueprint**.
+3. Select this repository and apply the blueprint.
+4. In the created `lyricmind-backend` service, set secret env vars:
+   - `SPRING_DATA_MONGODB_URI`
+   - `SPRING_AI_OPENAI_API_KEY`
+5. Deploy and wait for build/start to finish.
+
+### Render health check
 
 ```bash
-curl -s -X POST http://localhost:8080/api/lyricmind/v1/recommendations \
+curl -s https://<your-render-service>.onrender.com/actuator/health | python3 -m json.tool
+```
+
+### Backend API smoke test (Render)
+
+```bash
+curl -s -X POST https://<your-render-service>.onrender.com/api/lyricmind/v1/recommendations \
   -H "Content-Type: application/json" \
-  -d '{"mood": "happy and energetic", "limit": 3}' | python3 -m json.tool
+  -d '{"mood":"happy and energetic","limit":3}' | python3 -m json.tool
 ```
-
-**Expected response:**
-
-```json
-[
-  {
-    "title": "Congratulations",
-    "artist": "Post Malone",
-    "album": "Stoney",
-    "genre": "Hip-Hop/Pop",
-    "releaseYear": 2016,
-    "motivation": "Celebratory anthem with upbeat energy matches happy mood"
-  },
-  {
-    "title": "Sunflower",
-    "artist": "Post Malone",
-    "album": "Hollywood's Bleeding",
-    "genre": "Pop/Hip-Hop",
-    "releaseYear": 2018,
-    "motivation": "Warm, feel-good melody radiates happiness and positivity"
-  }
-]
-```
-
-### Ingest pre-loaded song dataset (one-time setup)
-
-This triggers the backend to read the pre-loaded `PostMalone.csv` from `src/main/resources/`, save songs to MongoDB, and generate vector embeddings.
-
-```bash
-curl -s -X POST http://localhost:8080/api/lyricmind/v1/embeddings/bulk-songs \
-  -H "Content-Type: application/json" \
-  -d '{"fileName": "PostMalone.csv"}' | python3 -m json.tool
-```
-
-**Expected response:**
-
-```json
-{
-  "numberOfSongs": 78
-}
-```
-
-### Health check
-
-```bash
-curl -s http://localhost:8080/actuator/health | python3 -m json.tool
-```
-
----
-
-## 📡 API Reference
-
-### `POST /api/lyricmind/v1/recommendations`
-
-Get AI-powered song recommendations based on mood.
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `mood` | string | ✅ | Natural language mood description |
-| `limit` | integer | ❌ | Number of songs (1–10, default: 10) |
-
-**Response:** `200 OK` — Array of:
-
-| Field | Type | Description |
-|---|---|---|
-| `title` | string | Song title |
-| `artist` | string | Artist name |
-| `album` | string | Album name |
-| `genre` | string | Music genre |
-| `releaseYear` | integer | Release year |
-| `motivation` | string | AI-generated explanation of why this song matches the mood |
-
-### `POST /api/lyricmind/v1/embeddings/bulk-songs`
-
-Ingest the pre-loaded song dataset (CSV file bundled in `src/main/resources/`) into MongoDB and the vector store. This is a **one-time setup** call — not a user-facing feature.
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `fileName` | string | ✅ | CSV filename in `src/main/resources/` |
-
-**Response:** `201 Created` — `{ "numberOfSongs": <count> }`
-
----
-
-## 🧠 How the RAG Pipeline Works
-
-1. **User sends mood** → `"nostalgic and soulful"`
-2. **Embedding** → OpenAI converts mood text to a 3072-dim vector
-3. **Vector Search** → MongoDB Atlas finds songs with similar embedding vectors (cosine similarity ≥ 0.6, topK = limit × 2)
-4. **Re-Ranking** → GPT-4o-mini receives candidate songs and the mood, ranks them by relevance, and writes a `motivation` for each
-5. **Enrichment** → Full song details (album, genre, year) are loaded from MongoDB `songs` collection
-6. **Response** → Clean JSON with title, artist, album, genre, releaseYear, and AI motivation
-
-If re-ranking fails at step 4, the system gracefully falls back to the original vector search order.
