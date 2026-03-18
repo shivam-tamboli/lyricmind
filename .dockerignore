@@ -1,0 +1,13 @@
+.git
+.gitignore
+
+frontend/node_modules
+backend/target
+backend/.idea
+frontend/.idea
+
+**/.DS_Store
+**/node_modules
+**/target
+**/*.log
+

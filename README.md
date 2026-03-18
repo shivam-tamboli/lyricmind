@@ -260,19 +260,27 @@ Open the URL shown in the terminal (e.g., `http://localhost:5173`).
 
 ---
 
-## Render Deployment (Backend)
+## Render Deployment (Backend via Docker)
 
-This repository includes `render.yaml` for Render Blueprint deployment.
+This repository now deploys the backend with a root `Dockerfile` (no `render.yaml` required).
 
 ### Deploy steps
 
 1. Push the latest code to GitHub.
-2. In Render, choose **New +** -> **Blueprint**.
-3. Select this repository and apply the blueprint.
-4. In the created `lyricmind-backend` service, set secret env vars:
+2. In Render, choose **New +** -> **Web Service**.
+3. Connect your repository and select the branch.
+4. Render should auto-detect the root `Dockerfile`.
+5. In service **Environment Variables**, add:
    - `SPRING_DATA_MONGODB_URI`
    - `SPRING_AI_OPENAI_API_KEY`
-5. Deploy and wait for build/start to finish.
+   - (optional) `SPRING_DATA_MONGODB_DATABASE=lyricmind`
+6. Deploy and wait for the service to become healthy.
+
+### Render service settings (important)
+
+- **Runtime**: Docker
+- **Dockerfile Path**: `./Dockerfile`
+- **Auto-Deploy**: Enable (recommended)
 
 ### Render health check
 
