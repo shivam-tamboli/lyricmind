@@ -4,7 +4,7 @@ FROM maven:3.9.9-eclipse-temurin-21 AS build
 WORKDIR /build
 
 # Copy backend sources and build the Spring Boot jar
-COPY backend/ ./
+COPY . .
 RUN chmod +x mvnw && ./mvnw -q -DskipTests clean package
 
 FROM eclipse-temurin:21-jre
