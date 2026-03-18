@@ -1,7 +1,6 @@
 services:
   - type: web
     name: lyricmind-backend
-    runtime: java
     rootDir: backend
     plan: free
     buildCommand: ./mvnw clean package -DskipTests
@@ -26,4 +25,3 @@ services:
         value: embedding
       - key: SPRING_AI_VECTOR_INDEX_NAME
         value: lyricmind_vector_index
-
