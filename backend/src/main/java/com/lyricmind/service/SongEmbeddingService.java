@@ -26,7 +26,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class SongEmbeddingService {
 
-    private static final String RESOURCES_PATH = "src/main/resources/";
+    private static final String RESOURCES_PATH = "";
 
     private final SongRepository songRepository;
     private final VectorStore vectorStore;
