@@ -16,6 +16,7 @@ public class SemanticQueryComponent {
 
     public SemanticQueryComponent(VectorStore vectorStore){
         this.vectorStore = vectorStore;
+        logger.info("VectorStore initialized: {}", vectorStore.getClass().getName());
     }
 
 
