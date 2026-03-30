@@ -41,14 +41,23 @@ public class RecommendationService {
         try {
             // 1. VECTOR SEARCH: Find candidate songs matching mood
             List<Document> candidates = findCandidateSongs(mood, limit);
+            
+            log.info("Step 1 - Vector search found {} candidates for mood: '{}'", candidates.size(), mood);
 
             if (candidates.isEmpty()) {
                 log.info("No songs found for mood: '{}'", mood);
                 return Collections.emptyList();
             }
 
+            // Log first candidate for debugging
+            if (!candidates.isEmpty()) {
+                Document first = candidates.get(0);
+                log.info("First candidate metadata: {}", first.getMetadata());
+            }
+
             // 2. AI RERANK: Refine results using OpenAI chat model
             List<Document> reranked = rerankCandidates(mood, candidates);
+            log.info("Step 2 - Reranking returned {} documents", reranked.size());
 
             // 3. FORMAT RESPONSE: Convert to clean API objects
             List<SongRecommendationResponse> recommendations =

@@ -20,25 +20,30 @@ public class SemanticQueryComponent {
 
 
     public List<Document> similaritySearch(String mood, int limit) {
-        String query = buildSemanticQuery(mood);
+        logger.info("Searching for songs with mood: '{}', limit: {}", mood, limit);
 
-        logger.info("Building semantic query: "+query);
+        try {
+            SearchRequest searchRequest = SearchRequest.builder()
+                    .query(mood)
+                    .topK(limit * 3)
+                    .similarityThreshold(0.0)
+                    .build();
 
-        SearchRequest searchRequest = SearchRequest.builder()
-                .query(query)
-                .topK(limit*2)
-                .similarityThreshold(0.3)
-                .build();
+            logger.info("Executing vector search with topK: {}, threshold: {}", 
+                    searchRequest.getTopK(), searchRequest.getSimilarityThreshold());
 
-        return vectorStore.similaritySearch(searchRequest);
-
-    }
-
-    private String buildSemanticQuery(String mood) {
-        return String.format(
-                "Mood: %s. " +
-                        "Search for songs that match this mood.",
-                mood
-        );
+            List<Document> results = vectorStore.similaritySearch(searchRequest);
+            
+            logger.info("Vector search returned {} documents", results.size());
+            
+            if (results.isEmpty()) {
+                logger.warn("No results found for query: '{}'. Check if embeddings exist in MongoDB.", mood);
+            }
+            
+            return results;
+        } catch (Exception e) {
+            logger.error("Vector search failed for mood: '{}'", mood, e);
+            throw new RuntimeException("Vector search failed: " + e.getMessage(), e);
+        }
     }
 }
