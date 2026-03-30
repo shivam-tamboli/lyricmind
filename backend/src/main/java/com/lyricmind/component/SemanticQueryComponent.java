@@ -26,7 +26,7 @@ public class SemanticQueryComponent {
         try {
             SearchRequest searchRequest = SearchRequest.builder()
                     .query(mood)
-                    .topK(limit * 10)
+                    .topK(limit * 2)
                     .similarityThreshold(0.6)
                     .build();
 
