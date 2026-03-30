@@ -27,7 +27,7 @@ public class SemanticQueryComponent {
             SearchRequest searchRequest = SearchRequest.builder()
                     .query(mood)
                     .topK(limit * 10)
-                    .similarityThreshold(0.0)
+                    .similarityThreshold(0.6)
                     .build();
 
             logger.info("Executing vector search with topK: {}, threshold: {}, VectorStore: {}", 
