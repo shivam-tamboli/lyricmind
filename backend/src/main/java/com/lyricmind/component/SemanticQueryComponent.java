@@ -29,7 +29,8 @@ public class SemanticQueryComponent {
                     .topK(limit * 5)
                     .build();
 
-            logger.info("Executing vector search with topK: {}", searchRequest.getTopK());
+            logger.info("Executing vector search with topK: {}, VectorStore: {}", 
+                    searchRequest.getTopK(), vectorStore.getClass().getName());
 
             List<Document> results = vectorStore.similaritySearch(searchRequest);
             
