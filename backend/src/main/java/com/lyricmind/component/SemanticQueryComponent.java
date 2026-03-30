@@ -39,11 +39,13 @@ public class SemanticQueryComponent {
             
             if (results.isEmpty()) {
                 logger.warn("No results found for query: '{}'. Check if embeddings exist in MongoDB.", mood);
+                logger.warn("VectorStore class: {}", vectorStore.getClass().getName());
+                logger.warn("VectorStore toString: {}", vectorStore.toString());
             }
             
             return results;
         } catch (Exception e) {
-            logger.error("Vector search failed for mood: '{}'", mood, e);
+            logger.error("Vector search failed for mood: '{}', error: {}", mood, e.getMessage(), e);
             throw new RuntimeException("Vector search failed: " + e.getMessage(), e);
         }
     }
