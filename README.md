@@ -1,233 +1,124 @@
-# 🎵 LyricMind — AI-Powered Mood-Based Song Recommendation
+# LyricMind
 
-> Tell the AI how you feel and get personalized song recommendations with explanations for why each song matches your mood.
+AI-powered mood-based song recommendation app built with React + Spring Boot.
 
-LyricMind is a full-stack application that uses **Retrieval-Augmented Generation (RAG)** to recommend songs based on natural-language mood descriptions. Songs are embedded into a vector store, retrieved via semantic similarity search, then re-ranked by an LLM that explains *why* each song fits the requested mood.
+Users provide a mood and desired result size. The backend retrieves semantically similar songs from a vector store, re-ranks them with an LLM, and returns recommendations with reasons (`motivation`) for each song.
 
----
+## What This Project Does
 
-## ✨ Key Features
+- Accepts natural-language mood input (for example: "nostalgic and calm")
+- Supports a configurable recommendation limit (`1` to `10`)
+- Uses MongoDB Atlas Vector Search for semantic retrieval
+- Uses OpenAI chat model for reranking + reason generation
+- Returns clean recommendation objects for frontend display
+- Supports CSV-based ingestion into MongoDB + vector index
 
-| Feature | Description |
-|---|---|
-| **Natural Language Mood Input** | Users describe their mood in free text (e.g., *"I feel nostalgic and want something soulful"*) or pick from preset mood chips |
-| **Semantic Vector Search** | Converts mood text to embeddings and finds matching songs via cosine similarity (threshold ≥ 0.6) in MongoDB Atlas |
-| **AI Re-Ranking with Motivation** | GPT-4o-mini re-ranks candidate songs by mood relevance and generates a human-readable *motivation* for each recommendation |
-| **CSV Dataset Ingestion** | Pre-loaded CSV song dataset (title, artist, album, year, lyrics) is ingested and auto-embedded into the vector store via a backend API call |
-| **Configurable Result Limit** | Users choose 1–10 songs per request |
-| **Graceful Fallbacks** | If re-ranking fails, the system returns original vector search order instead of crashing |
-| **Global Error Handling** | `@ControllerAdvice` catches all exceptions and returns clean HTTP error responses |
-
----
-
-## 🏗️ System Architecture Diagram (Full Project)
+## Architecture
 
 ```mermaid
-flowchart TB
-    subgraph Frontend["Frontend — React + Vite"]
-        UI["User Interface\nMood Input • Limit Selector\nMood Chips • Song Cards"]
-    end
-
-    subgraph Backend["Backend — Spring Boot 3"]
-        subgraph Controllers["REST Controllers"]
-            RC["RecommendationController\nPOST /api/lyricmind/v1/recommendations"]
-            EC["EmbeddingsController\nPOST /api/lyricmind/v1/embeddings/bulk-songs"]
-            EH["ErrorHandler\n@ControllerAdvice"]
-        end
-
-        subgraph Services["Service Layer"]
-            RS["RecommendationService\nOrchestrates RAG pipeline"]
-            SES["SongEmbeddingService\nCSV → Songs → Embeddings"]
-        end
-
-        subgraph Components["AI Components"]
-            SQC["SemanticQueryComponent\nVector similarity search\ntopK = limit×2 • threshold = 0.6"]
-            RRC["RerankComponent\nLLM re-ranking + motivation\nJSON prompt → scored results"]
-            DGC["DatasetGeneratorComponent\nCSV parser → SongRequest list"]
-        end
-
-        subgraph Repository["Data Access"]
-            SR["SongRepository\nSpring Data MongoDB"]
-        end
-    end
-
-    subgraph External["External Services"]
-        OPENAI_EMBED["OpenAI Embeddings API\ntext-embedding-3-large"]
-        OPENAI_CHAT["OpenAI Chat API\ngpt-4o-mini"]
-        MONGO_SONGS[("MongoDB Atlas\nsongs collection")]
-        MONGO_VECTOR[("MongoDB Atlas\nVector Store\nHNSW index")]
-    end
-
-    UI -- "POST { mood, limit }" --> RC
-    UI -. "displays" .-> UI
-    RC --> RS
-    RS --> SQC
-    SQC --> MONGO_VECTOR
-    MONGO_VECTOR -. "embed query" .-> OPENAI_EMBED
-    RS --> RRC
-    RRC --> OPENAI_CHAT
-    RS --> SR
-    SR --> MONGO_SONGS
-
-    EC --> SES
-    SES --> DGC
-    SES --> SR
-    SES --> MONGO_VECTOR
-    MONGO_VECTOR -. "embed docs" .-> OPENAI_EMBED
-
-    EH -. "handles errors" .-> RC
-    EH -. "handles errors" .-> EC
-
-    classDef frontend fill:#dbeafe,stroke:#2563eb,color:#1e3a5f
-    classDef controller fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
-    classDef service fill:#d1fae5,stroke:#059669,color:#064e3b
-    classDef component fill:#fef3c7,stroke:#d97706,color:#78350f
-    classDef external fill:#f3e8ff,stroke:#7c3aed,color:#4c1d95
-    classDef datastore fill:#fce7f3,stroke:#db2777,color:#831843
-
-    class UI frontend
-    class RC,EC,EH controller
-    class RS,SES service
-    class SQC,RRC,DGC component
-    class SR component
-    class OPENAI_EMBED,OPENAI_CHAT external
-    class MONGO_SONGS,MONGO_VECTOR datastore
+flowchart LR
+    A[React Frontend] -->|POST mood + limit| B[RecommendationController]
+    B --> C[RecommendationService]
+    C --> D[SemanticQueryComponent]
+    D --> E[(MongoDB Atlas Vector Store)]
+    C --> F[RerankComponent]
+    F --> G[OpenAI Chat Model]
+    C --> H[SongRepository]
+    H --> I[(MongoDB songs collection)]
+    C --> B
 ```
 
----
+## Backend Flow (RAG)
 
-## 🔁 RAG Pipeline Diagram (Backend Logic)
+1. Frontend calls `POST /api/lyricmind/v1/recommendations` with `mood` and `limit`
+2. `SemanticQueryComponent` performs similarity search (`topK = limit * 2`, threshold `0.6`)
+3. `RerankComponent` reorders candidates and adds `motivation`
+4. `RecommendationService` loads full song details by `songId`
+5. API returns `SongRecommendationResponse[]`
 
-```mermaid
-sequenceDiagram
-    actor User
-    participant FE as React Frontend
-    participant RC as RecommendationController
-    participant RS as RecommendationService
-    participant SQC as SemanticQueryComponent
-    participant VS as MongoDB Atlas Vector Store
-    participant OAI_E as OpenAI Embeddings
-    participant RRC as RerankComponent
-    participant OAI_C as OpenAI Chat (GPT-4o-mini)
-    participant SR as SongRepository
-    participant DB as MongoDB songs collection
+If reranking fails, the service falls back to original vector-search order.
 
-    User->>FE: Enters mood + selects limit
-    FE->>RC: POST /api/lyricmind/v1/recommendations<br/>{ "mood": "nostalgic", "limit": 5 }
+## Tech Stack
 
-    Note over RC,RS: Step 1 — Vector Search (Retrieval)
-    RC->>RS: recommendSongs(mood, limit)
-    RS->>SQC: similaritySearch(mood, limit)
-    SQC->>VS: SearchRequest(query, topK=limit×2, threshold=0.6)
-    VS->>OAI_E: Embed mood query → vector
-    OAI_E-->>VS: [0.012, -0.034, ..., 0.089]
-    VS-->>SQC: Top candidate Documents (with metadata)
-    SQC-->>RS: List<Document> candidates
+- Frontend: React 19, Vite 7, CSS
+- Backend: Java 21, Spring Boot 3.5, Spring AI 1.1
+- Database: MongoDB Atlas (documents + vector search)
+- AI models:
+  - Embedding: `text-embedding-3-large`
+  - Chat/rerank: `gpt-4o-mini`
 
-    Note over RS,OAI_C: Step 2 — AI Re-Ranking (Augmented Generation)
-    RS->>RRC: rerank(mood, candidates)
-    RRC->>OAI_C: Prompt: "Rank these songs for mood 'nostalgic'...<br/>Return JSON: [{doc_index, score, motivation}]"
-    OAI_C-->>RRC: [{"doc_index":3,"score":0.95,"motivation":"Soulful lyrics evoke deep nostalgia"},...]
-    RRC-->>RS: Re-ordered Documents with motivation metadata
+## API Contracts
 
-    Note over RS,DB: Step 3 — Enrich from Database
-    loop For each re-ranked document
-        RS->>SR: findById(songId from metadata)
-        SR->>DB: Query by _id
-        DB-->>SR: Full Song (title, artist, album, genre, lyrics, releaseYear)
-        SR-->>RS: Song entity
-    end
+### 1) Get Recommendations
 
-    Note over RS,FE: Step 4 — Response
-    RS-->>RC: List<SongRecommendationResponse>
-    RC-->>FE: 200 OK [{title, artist, album, genre, releaseYear, motivation}]
-    FE-->>User: Displays song cards with AI motivation
+- Method: `POST`
+- Path: `/api/lyricmind/v1/recommendations`
+
+Request body:
+
+```json
+{
+  "mood": "happy and energetic",
+  "limit": 5
+}
 ```
 
----
+Response body (`200`):
 
-## 🛠️ Tech Stack
-
-| Layer | Technology |
-|---|---|
-| **Frontend** | React 19, Vite 7, Vanilla CSS |
-| **Backend** | Java 21, Spring Boot 3.5, Spring AI 1.1 |
-| **Database** | MongoDB Atlas (document store + vector index) |
-| **AI Models** | OpenAI `text-embedding-3-large` (embeddings), `gpt-4o-mini` (re-ranking) |
-| **Vector Store** | MongoDB Atlas Vector Search (HNSW index, cosine similarity) |
-
----
-
-## 📂 Project Structure
-
-```
-lyricmind/
-├── frontend/                        # React UI
-│   ├── src/
-│   │   ├── App.jsx                  # Main app — routing between MoodForm / Results / Loader / Error
-│   │   ├── components/
-│   │   │   ├── MoodForm.jsx         # Mood text input + mood chips + limit stepper
-│   │   │   ├── SongCard.jsx         # Displays title, artist, album, genre, year, motivation
-│   │   │   └── Loader.jsx           # Animated loading spinner
-│   │   ├── pages/
-│   │   │   └── ResultPage.jsx       # Grid of SongCards with mood tag + back button
-│   │   └── services/
-│   │       └── api.js               # fetch POST → /api/lyricmind/v1/recommendations
-│   └── package.json
-│
-├── backend/                         # Spring Boot API
-│   ├── src/main/java/com/lyricmind/
-│   │   ├── LyricmindApplication.java
-│   │   ├── controller/
-│   │   │   ├── RecommendationController.java   # POST /recommendations → {mood, limit}
-│   │   │   ├── EmbeddingsController.java       # POST /embeddings/bulk-songs → {fileName}
-│   │   │   └── ErrorHandler.java               # Global @ControllerAdvice
-│   │   ├── service/
-│   │   │   ├── RecommendationService.java      # RAG pipeline orchestrator
-│   │   │   └── SongEmbeddingService.java       # CSV → MongoDB + vector store
-│   │   ├── component/
-│   │   │   ├── SemanticQueryComponent.java     # Vector similarity search
-│   │   │   ├── RerankComponent.java            # LLM re-ranking with motivation
-│   │   │   └── DatasetGeneratorComponent.java  # CSV file parser
-│   │   ├── model/
-│   │   │   ├── Song.java                       # MongoDB document entity
-│   │   │   ├── SongEmbedding.java              # Vector embedding entity
-│   │   │   └── dto/
-│   │   │       ├── MusicRequest.java           # Input:  { mood, limit }
-│   │   │       ├── SongRecommendationResponse.java  # Output: { title, artist, album, genre, releaseYear, motivation }
-│   │   │       ├── BulkSongRequest.java        # Input:  { fileName }
-│   │   │       └── BulkSongResponse.java       # Output: { numberOfSongs }
-│   │   └── repository/
-│   │       └── SongRepository.java             # Spring Data MongoDB CRUD
-│   ├── src/main/resources/
-│   │   ├── application.properties
-│   │   └── PostMalone.csv                      # Pre-loaded song dataset
-│   └── pom.xml
-└── README.md
+```json
+[
+  {
+    "title": "...",
+    "artist": "...",
+    "album": "...",
+    "genre": "...",
+    "releaseYear": 2019,
+    "motivation": "Matches upbeat mood and lyrical tone"
+  }
+]
 ```
 
----
+### 2) Bulk Song Embedding From CSV
 
-## 🚀 Getting Started
+- Method: `POST`
+- Path: `/api/lyricmind/v1/embeddings/bulk-songs`
+
+Request body:
+
+```json
+{
+  "fileName": "PostMalone.csv"
+}
+```
+
+Response body (`201`):
+
+```json
+{
+  "numberOfSongs": 123
+}
+```
+
+Note: the project includes a default CSV at `backend/src/main/resources/PostMalone.csv`.
+
+## Local Setup
 
 ### Prerequisites
 
 - Java 21+
-- Node.js 18+ (for React frontend)
-- MongoDB Atlas cluster with Vector Search index
+- Node.js 18+
+- MongoDB Atlas cluster (with network access from your machine)
 - OpenAI API key
 
-### 0. Set backend environment variables
-
-Before running locally or deploying, configure these variables:
+### Environment Variables (Backend)
 
 - `SPRING_DATA_MONGODB_URI`
-- `SPRING_DATA_MONGODB_DATABASE` (optional, default: `lyricmind`)
+- `SPRING_DATA_MONGODB_DATABASE` (optional, default `lyricmind`)
 - `SPRING_AI_OPENAI_API_KEY`
-- `SPRING_AI_OPENAI_EMBEDDING_MODEL` (optional, default: `text-embedding-3-large`)
-- `SPRING_AI_OPENAI_CHAT_MODEL` (optional, default: `gpt-4o-mini`)
+- `SPRING_AI_OPENAI_EMBEDDING_MODEL` (optional, default `text-embedding-3-large`)
+- `SPRING_AI_OPENAI_CHAT_MODEL` (optional, default `gpt-4o-mini`)
 
-Example (macOS/Linux):
+Example:
 
 ```bash
 export SPRING_DATA_MONGODB_URI='mongodb+srv://<user>:<password>@<cluster>/<db>?retryWrites=true&w=majority'
@@ -235,20 +126,14 @@ export SPRING_DATA_MONGODB_DATABASE='lyricmind'
 export SPRING_AI_OPENAI_API_KEY='sk-...'
 ```
 
-### 1. Start the Backend
+### Run Backend
 
 ```bash
 cd backend
 ./mvnw spring-boot:run
 ```
 
-The backend starts on `http://localhost:8080`. If port 8080 is already in use, stop the existing process first or set a custom port:
-
-```bash
-SERVER_PORT=8081 ./mvnw spring-boot:run
-```
-
-### 2. Start the Frontend
+### Run Frontend
 
 ```bash
 cd frontend
@@ -256,42 +141,57 @@ npm install
 npm run dev
 ```
 
-Open the URL shown in the terminal (e.g., `http://localhost:5173`).
+By default, frontend requests `http://localhost:8080` unless `VITE_API_URL` is set.
 
----
+## Quick API Test (curl)
 
-## Render Deployment (Backend via Docker)
+```bash
+curl -s -X POST http://localhost:8080/api/lyricmind/v1/embeddings/bulk-songs \
+  -H "Content-Type: application/json" \
+  -d '{"fileName":"PostMalone.csv"}'
 
-This repository now deploys the backend with a root `Dockerfile` (no `render.yaml` required).
+curl -s -X POST http://localhost:8080/api/lyricmind/v1/recommendations \
+  -H "Content-Type: application/json" \
+  -d '{"mood":"calm and nostalgic","limit":5}'
+```
 
-### Deploy steps
+## Docker (Backend)
 
-1. Push the latest code to GitHub.
-2. In Render, choose **New +** -> **Web Service**.
-3. Connect your repository and select the branch.
-4. Render should auto-detect the root `Dockerfile`.
-5. In service **Environment Variables**, add:
+Dockerfile location: `backend/Dockerfile`
+
+Build and run locally:
+
+```bash
+cd backend
+docker build -t lyricmind-backend .
+docker run --rm -p 8080:8080 \
+  -e SPRING_DATA_MONGODB_URI='mongodb+srv://<user>:<password>@<cluster>/<db>?retryWrites=true&w=majority' \
+  -e SPRING_AI_OPENAI_API_KEY='sk-...' \
+  lyricmind-backend
+```
+
+## Deploy on Render (Backend)
+
+1. Push repository to GitHub
+2. On Render, create a new **Web Service**
+3. Choose **Docker** runtime
+4. Set **Root Directory** to `backend`
+5. Set **Dockerfile Path** to `Dockerfile`
+6. Add env vars:
    - `SPRING_DATA_MONGODB_URI`
    - `SPRING_AI_OPENAI_API_KEY`
-   - (optional) `SPRING_DATA_MONGODB_DATABASE=lyricmind`
-6. Deploy and wait for the service to become healthy.
+   - optional `SPRING_DATA_MONGODB_DATABASE=lyricmind`
+7. Deploy
 
-### Render service settings (important)
-
-- **Runtime**: Docker
-- **Dockerfile Path**: `./Dockerfile`
-- **Auto-Deploy**: Enable (recommended)
-
-### Render health check
+Health check:
 
 ```bash
-curl -s https://<your-render-service>.onrender.com/actuator/health | python3 -m json.tool
+curl -s https://<your-service>.onrender.com/actuator/health
 ```
 
-### Backend API smoke test (Render)
+## Troubleshooting
 
-```bash
-curl -s -X POST https://<your-render-service>.onrender.com/api/lyricmind/v1/recommendations \
-  -H "Content-Type: application/json" \
-  -d '{"mood":"happy and energetic","limit":3}' | python3 -m json.tool
-```
+- `Port 8080 already in use`: stop the existing process on `8080` or run backend on another port
+- MongoDB timeout / SSL internal error: verify Atlas IP allowlist and connection string credentials
+- `ERR_CONNECTION_REFUSED` from frontend: backend is not running or URL/port mismatch
+
