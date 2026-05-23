@@ -8,6 +8,7 @@ import com.lyricmind.repository.SongRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -31,7 +32,11 @@ public class RecommendationService {
      * 1. Vector search — retrieve semantically similar candidates
      * 2. LLM rerank   — select and rank the top {@code limit} songs by mood fit
      * 3. DB enrich    — single batch query to load full Song documents
+     *
+     * <p>Results are cached by (mood, limit) for 15 minutes. Cache is evicted
+     * when new songs are ingested via the bulk embedding endpoint.
      */
+    @Cacheable(value = "recommendations", key = "#mood.toLowerCase().trim() + ':' + #limit")
     public List<SongRecommendationResponse> recommendSongs(String mood, int limit) {
         long totalStart = System.currentTimeMillis();
         log.info("[START] Recommendations request — mood: '{}', limit: {}", mood, limit);
