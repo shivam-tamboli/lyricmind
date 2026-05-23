@@ -36,38 +36,35 @@ public class RecommendationService {
      * 3. Formats results for API response
      */
     public List<SongRecommendationResponse> recommendSongs(String mood, int limit) {
-        log.info("Requesting recommendations for mood: '{}' limit: {}", mood, limit);
+        long totalStart = System.currentTimeMillis();
+        log.info("[START] Recommendations request — mood: '{}', limit: {}", mood, limit);
 
         try {
-            // 1. VECTOR SEARCH: Find candidate songs matching mood
+            // 1. VECTOR SEARCH
+            long t0 = System.currentTimeMillis();
             List<Document> candidates = findCandidateSongs(mood, limit);
-            
-            log.info("Step 1 - Vector search found {} candidates for mood: '{}'", candidates.size(), mood);
+            log.info("[PERF] Vector search: {}ms — {} candidates found", System.currentTimeMillis() - t0, candidates.size());
 
             if (candidates.isEmpty()) {
-                log.info("No songs found for mood: '{}'", mood);
+                log.info("[END] No candidates for mood: '{}' ({}ms total)", mood, System.currentTimeMillis() - totalStart);
                 return Collections.emptyList();
             }
 
-            // Log first candidate for debugging
-            if (!candidates.isEmpty()) {
-                Document first = candidates.get(0);
-                log.info("First candidate metadata: {}", first.getMetadata());
-            }
-
-            // 2. AI RERANK: Refine results using OpenAI chat model
+            // 2. AI RERANK
+            long t1 = System.currentTimeMillis();
             List<Document> reranked = rerankCandidates(mood, candidates);
-            log.info("Step 2 - Reranking returned {} documents", reranked.size());
+            log.info("[PERF] Reranking: {}ms — {} documents reranked", System.currentTimeMillis() - t1, reranked.size());
 
-            // 3. FORMAT RESPONSE: Convert to clean API objects
-            List<SongRecommendationResponse> recommendations =
-                    mapDocumentsToRecommendations(reranked, limit);
+            // 3. DB ENRICHMENT + RESPONSE MAPPING
+            long t2 = System.currentTimeMillis();
+            List<SongRecommendationResponse> recommendations = mapDocumentsToRecommendations(reranked, limit);
+            log.info("[PERF] DB lookup + mapping: {}ms — {} results", System.currentTimeMillis() - t2, recommendations.size());
 
-            log.info("Generated {} recommendations for '{}'", recommendations.size(), mood);
+            log.info("[END] Total: {}ms — {} recommendations for '{}'", System.currentTimeMillis() - totalStart, recommendations.size(), mood);
             return recommendations;
 
         } catch (Exception e) {
-            log.error("Recommendation failed for mood: '{}'", mood, e);
+            log.error("[ERROR] Recommendation failed after {}ms for mood: '{}'", System.currentTimeMillis() - totalStart, mood, e);
             throw new RuntimeException("Recommendation failed", e);
         }
     }
@@ -87,7 +84,7 @@ public class RecommendationService {
         try {
             return rerankComponent.rerank(mood, candidates);
         } catch (Exception e) {
-            log.warn("Reranking failed for mood: '{}', using original order", mood, e);
+            log.warn("Reranking failed for mood: '{}', falling back to vector search order", mood, e);
             return candidates;  // Graceful fallback
         }
     }
