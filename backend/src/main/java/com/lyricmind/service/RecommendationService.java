@@ -11,9 +11,10 @@ import org.springframework.ai.document.Document;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -21,19 +22,15 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class RecommendationService {
 
-    private static final int DEFAULT_LIMIT = 10;
-    private static final int MAX_LIMIT = 10;
-
-    // DEPENDENCY INJECTION: Spring auto-injects these components
     private final SongRepository songRepository;
     private final RerankComponent rerankComponent;
     private final SemanticQueryComponent semanticQueryComponent;
 
     /**
-     * MAIN METHOD: Orchestrates complete RAG pipeline for song recommendations
-     * 1. Vector search finds candidate songs
-     * 2. AI re-ranks by mood relevance
-     * 3. Formats results for API response
+     * Orchestrates the full RAG recommendation pipeline:
+     * 1. Vector search — retrieve semantically similar candidates
+     * 2. LLM rerank   — select and rank the top {@code limit} songs by mood fit
+     * 3. DB enrich    — single batch query to load full Song documents
      */
     public List<SongRecommendationResponse> recommendSongs(String mood, int limit) {
         long totalStart = System.currentTimeMillis();
@@ -50,12 +47,12 @@ public class RecommendationService {
                 return Collections.emptyList();
             }
 
-            // 2. AI RERANK
+            // 2. LLM RERANK — asks GPT to select top `limit` from candidates
             long t1 = System.currentTimeMillis();
-            List<Document> reranked = rerankCandidates(mood, candidates);
-            log.info("[PERF] Reranking: {}ms — {} documents reranked", System.currentTimeMillis() - t1, reranked.size());
+            List<Document> reranked = rerankCandidates(mood, candidates, limit);
+            log.info("[PERF] Reranking: {}ms — {} documents selected", System.currentTimeMillis() - t1, reranked.size());
 
-            // 3. DB ENRICHMENT + RESPONSE MAPPING
+            // 3. BATCH DB ENRICHMENT + RESPONSE MAPPING
             long t2 = System.currentTimeMillis();
             List<SongRecommendationResponse> recommendations = mapDocumentsToRecommendations(reranked, limit);
             log.info("[PERF] DB lookup + mapping: {}ms — {} results", System.currentTimeMillis() - t2, recommendations.size());
@@ -69,7 +66,6 @@ public class RecommendationService {
         }
     }
 
-    // HELPER 1: Delegates to vector search component
     private List<Document> findCandidateSongs(String mood, int limit) {
         try {
             return semanticQueryComponent.similaritySearch(mood, limit);
@@ -79,88 +75,72 @@ public class RecommendationService {
         }
     }
 
-    // HELPER 2: Delegates to AI reranking component
-    private List<Document> rerankCandidates(String mood, List<Document> candidates) {
+    private List<Document> rerankCandidates(String mood, List<Document> candidates, int limit) {
         try {
-            return rerankComponent.rerank(mood, candidates);
+            return rerankComponent.rerank(mood, candidates, limit);
         } catch (Exception e) {
             log.warn("Reranking failed for mood: '{}', falling back to vector search order", mood, e);
             return candidates;  // Graceful fallback
         }
     }
 
-    // HELPER 3: Converts Documents to API response format
-    private List<SongRecommendationResponse> mapDocumentsToRecommendations(
-            List<Document> documents, int limit) {
-        return documents.stream()
-                .limit(limit)
-                .map(this::mapDocumentToRecommendation)
-                .filter(Optional::isPresent)
-                .map(Optional::get)
+    /**
+     * Maps reranked documents to API response DTOs using a single batch DB call.
+     *
+     * <p>Instead of calling {@code findById()} once per document (N+1 anti-pattern),
+     * this collects all songIds upfront, loads them in one {@code findAllById()} call,
+     * and maps results while preserving the reranked order.
+     */
+    private List<SongRecommendationResponse> mapDocumentsToRecommendations(List<Document> documents, int limit) {
+        List<Document> topDocs = documents.stream().limit(limit).collect(Collectors.toList());
+
+        // Extract songIds in reranked order
+        List<String> songIds = topDocs.stream()
+                .map(this::extractSongId)
                 .collect(Collectors.toList());
-    }
 
-    private Optional<SongRecommendationResponse> mapDocumentToRecommendation(Document document) {
-        // CORE MAPPING: Converts vector search Document → full SongRecommendationResponse DTO
-        // 1. Extracts songId from Document metadata
-        // 2. Loads complete Song from MongoDB using SongRepository
-        // 3. Adds AI "motivation" from reranking
-        // 4. Creates clean API response (handles missing data safely)
-
-        try {
-            String songId = extractSongId(document);
-            if (!StringUtils.hasText(songId)) {
-                log.warn("Song ID missing in document metadata");
-                return Optional.empty();
-            }
-
-            // LOAD FULL SONG: Vector search gives metadata only, need complete Song
-            Optional<Song> songOptional = findSongById(songId);
-            if (songOptional.isEmpty()) {
-                log.warn("Song not found for ID: {}", songId);
-                return Optional.empty();
-            }
-
-            Song song = songOptional.get();
-            String motivation = extractMotivation(document);
-
-            // CREATE FINAL DTO: All song details + AI explanation
-            SongRecommendationResponse recommendation = createRecommendationResponse(song, motivation);
-
-            log.debug("Mapped song: '{}' by '{}' to recommendation",
-                    song.getTitle(), song.getArtist());
-            return Optional.of(recommendation);
-
-        } catch (Exception e) {
-            log.error("Document mapping failed", e);
-            return Optional.empty();  // Safe fallback
+        // Short-circuit when no valid IDs (e.g. all metadata missing songId)
+        List<String> validIds = songIds.stream().filter(StringUtils::hasText).collect(Collectors.toList());
+        if (validIds.isEmpty()) {
+            log.warn("No valid songIds in {} reranked documents", topDocs.size());
+            return Collections.emptyList();
         }
+
+        // Single batch DB call instead of N individual findById() calls
+        Map<String, Song> songMap = songRepository
+                .findAllById(validIds)
+                .stream()
+                .collect(Collectors.toMap(Song::getId, s -> s));
+
+        // Build responses preserving reranked order
+        List<SongRecommendationResponse> results = new ArrayList<>();
+        for (int i = 0; i < topDocs.size(); i++) {
+            String songId = songIds.get(i);
+            if (!StringUtils.hasText(songId)) {
+                log.warn("Missing songId at position {}", i);
+                continue;
+            }
+            Song song = songMap.get(songId);
+            if (song == null) {
+                log.warn("Song not found for ID: {}", songId);
+                continue;
+            }
+            results.add(createRecommendationResponse(song, extractMotivation(topDocs.get(i))));
+        }
+        return results;
     }
 
     private String extractSongId(Document document) {
-        // Extracts songId from Document metadata (set during ingestion)
         Object songIdObj = document.getMetadata().get("songId");
         return songIdObj != null ? songIdObj.toString() : null;
     }
 
     private String extractMotivation(Document document) {
-        // Gets AI reranking explanation ("Upbeat matches happy mood")
         Object motivationObj = document.getMetadata().get("motivation");
         return motivationObj != null ? motivationObj.toString() : "Recommended based on mood similarity";
     }
 
-    private Optional<Song> findSongById(String songId) {
-        // HYBRID LOOKUP: Vector search finds relevant docs, repository gets full Song details
-        try {
-            return songRepository.findById(songId);
-        } catch (Exception e) {
-            log.error("Database lookup failed for song ID: {}", songId, e);
-            return Optional.empty();
-        }
-    }
-
     private SongRecommendationResponse createRecommendationResponse(Song song, String motivation) {
-        // BUILDS API RESPONSE: Clean DTO with sanitized data
         return new SongRecommendationResponse(
                 sanitizeText(song.getTitle()),
                 sanitizeText(song.getArtist()),
@@ -172,8 +152,6 @@ public class RecommendationService {
     }
 
     private String sanitizeText(String text) {
-        // CLEANUP: Trims whitespace, handles null/empty → empty string
         return StringUtils.hasText(text) ? text.trim() : "";
     }
-
 }

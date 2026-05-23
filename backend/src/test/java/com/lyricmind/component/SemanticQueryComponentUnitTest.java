@@ -88,7 +88,9 @@ public class SemanticQueryComponentUnitTest {
         RuntimeException exception = assertThrows(RuntimeException.class,
                 () -> semanticQueryComponent.similaritySearch(mood, limit));
 
-        assertEquals("Vector store error", exception.getMessage());
+        // The component wraps the upstream exception with context
+        assertTrue(exception.getMessage().contains("Vector store error"));
+        assertEquals("Vector store error", exception.getCause().getMessage());
     }
 }
 

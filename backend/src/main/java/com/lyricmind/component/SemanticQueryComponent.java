@@ -24,25 +24,25 @@ public class SemanticQueryComponent {
         logger.info("Searching for songs with mood: '{}', limit: {}", mood, limit);
 
         try {
+            // Fetch limit + 5 candidates (enough buffer for reranker to choose from,
+            // without sending excessive tokens to the LLM)
+            int topK = limit + Math.min(limit, 5);
             SearchRequest searchRequest = SearchRequest.builder()
                     .query(mood)
-                    .topK(limit * 2)
+                    .topK(topK)
                     .similarityThreshold(0.6)
                     .build();
 
-            logger.info("Executing vector search with topK: {}, threshold: {}, VectorStore: {}", 
-                    searchRequest.getTopK(), searchRequest.getSimilarityThreshold(), vectorStore.getClass().getName());
+            logger.info("Executing vector search with topK: {}, threshold: {}", searchRequest.getTopK(), searchRequest.getSimilarityThreshold());
 
             List<Document> results = vectorStore.similaritySearch(searchRequest);
             
             logger.info("Vector search returned {} documents", results.size());
             
             if (results.isEmpty()) {
-                logger.warn("No results found for query: '{}'. Check if embeddings exist in MongoDB.", mood);
-                logger.warn("VectorStore class: {}", vectorStore.getClass().getName());
-                logger.warn("VectorStore toString: {}", vectorStore.toString());
+                logger.warn("No results for query: '{}'. Check that embeddings exist in MongoDB Atlas.", mood);
             }
-            
+
             return results;
         } catch (Exception e) {
             logger.error("Vector search failed for mood: '{}', error: {}", mood, e.getMessage(), e);
