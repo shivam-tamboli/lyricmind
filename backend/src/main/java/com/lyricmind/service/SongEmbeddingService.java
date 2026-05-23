@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -80,9 +81,11 @@ public class SongEmbeddingService {
 
     /**
      * CSV INGESTION ENDPOINT: File → Songs → Embeddings
-     * Orchestrates complete ingestion from CSV file path
+     * Orchestrates complete ingestion from CSV file path.
+     * Evicts the recommendations cache so newly ingested songs are immediately discoverable.
      */
     @Transactional
+    @CacheEvict(value = "recommendations", allEntries = true)
     public BulkSongResponse createEmbeddingFromBulkSong(BulkSongRequest request) {
         if (request == null || request.fileName() == null || request.fileName().trim().isEmpty()) {
             throw new IllegalArgumentException("Bulk request and filename cannot be null or empty");
