@@ -16,6 +16,7 @@ function App() {
     setLoading(true);
     setError(null);
     setMood(moodText);
+    setSongs([]);
 
     try {
       const data = await getRecommendations(moodText, limit);
@@ -23,6 +24,7 @@ function App() {
       setShowResults(true);
     } catch (err) {
       setError(err.message || "Something went wrong. Please try again.");
+      setShowResults(false);
     } finally {
       setLoading(false);
     }
@@ -34,55 +36,59 @@ function App() {
     setError(null);
   };
 
-  const handleRetry = () => {
-    if (mood) {
-      handleSearch(mood, 5);
-    }
+  const handleRefine = (newMood) => {
+    handleSearch(newMood, 5);
   };
 
   return (
     <>
-      {/* Animated background */}
-      <div className="app-bg">
-        <div className="orb orb-1"></div>
-        <div className="orb orb-2"></div>
-        <div className="orb orb-3"></div>
+      <div className="app-bg" aria-hidden="true">
+        <div className="orb orb-1" />
+        <div className="orb orb-2" />
+        <div className="orb orb-3" />
       </div>
 
       <div className="app-container">
-        {/* Header */}
         <header className="app-header">
-          <div className="app-logo" onClick={handleBack}>
+          <div className="app-logo" onClick={handleBack} role="button" tabIndex={0} aria-label="Go home">
             <div className="app-logo-icon">🎵</div>
             <span className="app-logo-text">LyricMind</span>
           </div>
           <span className="app-logo-badge">AI Powered</span>
         </header>
 
-        {/* Main Content */}
-        {loading ? (
-          <Loader />
-        ) : error ? (
-          <div className="error-container">
-            <div className="error-icon">⚠️</div>
-            <p className="error-message">Failed to get recommendations</p>
-            <p className="error-hint">{error}</p>
-            <button className="retry-btn" onClick={handleRetry}>
-              Try Again
-            </button>
-          </div>
-        ) : showResults ? (
-          <ResultPage songs={songs} mood={mood} onBack={handleBack} />
-        ) : (
-          <MoodForm onSearch={handleSearch} />
-        )}
+        <main className="app-main">
+          {loading ? (
+            <Loader />
+          ) : error ? (
+            <div className="error-container">
+              <div className="error-icon">⚠️</div>
+              <p className="error-message">Couldn't load recommendations</p>
+              <p className="error-hint">{error}</p>
+              <div className="error-actions">
+                <button className="retry-btn" onClick={() => handleSearch(mood, 5)}>
+                  Try Again
+                </button>
+                <button className="back-btn" onClick={handleBack}>
+                  New Search
+                </button>
+              </div>
+            </div>
+          ) : showResults ? (
+            <ResultPage
+              songs={songs}
+              mood={mood}
+              onBack={handleBack}
+              onRefine={handleRefine}
+            />
+          ) : (
+            <MoodForm onSearch={handleSearch} />
+          )}
+        </main>
 
-        {/* Footer */}
         <footer className="app-footer">
-          <div>Built with ❤️ using RAG Architecture</div>
-          <div className="footer-tech">
-            Spring Boot • MongoDB Atlas • OpenAI • React
-          </div>
+          <div>Built with RAG architecture</div>
+          <div className="footer-tech">Spring Boot · MongoDB Atlas · OpenAI · React</div>
         </footer>
       </div>
     </>
