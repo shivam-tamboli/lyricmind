@@ -165,7 +165,7 @@ cd backend
 ./mvnw test
 ```
 
-Expected: 52 tests, 0 failures.
+Expected: 53 tests, 0 failures.
 
 ---
 
@@ -215,15 +215,24 @@ Cache is automatically evicted on `POST /api/lyricmind/v1/embeddings/bulk-songs`
 
 ### Reranking
 
-The reranking prompt asks GPT to select exactly `limit` songs from `limit + min(limit, 5)` candidates. This means:
+The vector search fetches `limit + min(limit, 5)` candidates (topK) so the reranker has a selection pool larger than the final result set.
+
+**Skip optimisation:** When the similarity threshold filters so aggressively that `candidates.size() ≤ limit`, there is nothing to rank — every candidate will be returned regardless of order. In this case `RecommendationService` skips the GPT-4o-mini call entirely and uses the vector-search order directly, saving 1–3s.
+
+When reranking does run, the prompt asks GPT to **select** exactly `limit` songs (not rank all M). This means:
 - `limit=5` → GPT selects 5 from 10 candidates
 - `limit=10` → GPT selects 10 from 15 candidates
 
-GPT output token count is O(limit), not O(topK) — this is intentional and important for latency.
+GPT output token count is O(limit), not O(topK) — intentional for latency.
+
+If reranking throws an exception, `RecommendationService` catches it and falls back to the vector-search order silently (the user still gets results).
 
 ### Similarity Threshold
 
-The vector search similarity threshold is `0.6` (configurable in `SemanticQueryComponent`). Lower values return more candidates but with weaker semantic match. Raise to `0.7–0.8` if you're getting irrelevant results.
+The vector search similarity threshold is `0.5` (configurable in `SemanticQueryComponent`). This value was deliberately chosen lower than a typical text-search threshold because mood queries and song lyrics live in different semantic registers — abstract mood descriptions ("heartbreak and missing someone") vs. colloquial / slang-heavy lyrics. A threshold of 0.6 or higher causes valid matches to be filtered out.
+
+- **Lower** (e.g. `0.4`) if users are frequently seeing "No songs found" for reasonable mood descriptions.
+- **Raise** (e.g. `0.65`) only if you expand the dataset significantly and start seeing irrelevant results slipping through.
 
 ---
 
@@ -266,7 +275,7 @@ Skipping tests during image build (`-DskipTests`) is intentional — tests requi
    - `SPRING_AI_OPENAI_API_KEY` — **required**
    - `SPRING_DATA_MONGODB_DATABASE` — optional, default `lyricmind`
 
-> **Free vs Paid tier**: Render's free tier spins down after 15 minutes of inactivity, causing 30–60s cold starts. For production use or demos, upgrade to the paid Starter plan ($7/month) for always-on instances.
+> **Free vs Paid tier**: Render's free tier spins down after 15 minutes of inactivity. Container restart + JVM startup + Spring context initialisation takes 30–45s. The frontend mitigates this automatically: `App.jsx` fires a silent `GET /actuator/health` ping the moment the page loads, so the cold-start process begins while the user is still reading the UI. A clear *"Server is starting up..."* message appears in the loader after 10s, and all requests time out with a user-friendly error after 45s. For production use or demos, upgrade to the paid Starter plan ($7/month) for always-on instances.
 
 > **Region alignment**: For lowest latency, deploy the Render service in the same region as your MongoDB Atlas cluster (e.g., both in `us-east-1`).
 
@@ -295,4 +304,5 @@ Set `VITE_API_URL` to your Render backend URL in the hosting platform's environm
 | Vector search returns 0 results | Index not created, or no songs ingested | Create the Atlas vector index (§3.3), then run bulk ingest (§6) |
 | `Invalid JSON response from AI model` | GPT returned markdown-wrapped JSON | Already handled by `cleanJsonResponse()` — if still failing, check OpenAI API status |
 | Recommendations are stale after ingest | Cache not evicted | Cache is evicted automatically by `@CacheEvict` on the bulk-songs endpoint |
-| Cold start delay on first request | Render free tier | Upgrade to Render Starter plan, or send a warm-up ping before demo |
+| Cold start delay on first request | Render free tier (30–45s container + JVM startup) | The frontend automatically pings `/actuator/health` on page load to start warming the server. For guaranteed low latency, upgrade to the Render Starter plan ($7/month). |
+| Request hangs for >45s, then shows timeout error | Server was cold; pre-warm ping didn't fully absorb the startup time | Expected behaviour — the loader shows "Server is starting up..." at 10s. Retry the search once the server is warm. |

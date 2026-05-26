@@ -40,9 +40,10 @@ Full architecture details: [DEVELOPER_GUIDE.md](./DEVELOPER_GUIDE.md)
 1. `POST /api/lyricmind/v1/recommendations` with `mood` and `limit`
 2. Cache check — if `(mood, limit)` seen in last 15 min, return instantly
 3. `SemanticQueryComponent` embeds the mood query and queries the HNSW vector index  
-   (`topK = limit + min(limit, 5)`, similarity threshold `0.6`)
+   (`topK = limit + min(limit, 5)`, similarity threshold `0.5`)
 4. `RerankComponent` asks GPT-4o-mini to **select the top `limit`** songs from candidates  
-   (output is O(limit) tokens, not O(topK) — intentionally smaller for latency)
+   — skipped entirely when `candidates ≤ limit` (nothing to rank, saves 1–3s)  
+   — when it runs, output is O(limit) tokens, not O(topK), for lower latency
 5. `RecommendationService` loads full song metadata with a single `findAllById()` batch call
 6. Returns `SongRecommendationResponse[]`
 
@@ -153,12 +154,14 @@ docker run --rm -p 8080:8080 \
 | Scenario | Latency |
 |---|---|
 | Cache hit (repeat query) | < 5ms |
-| limit=1, warm | ~1s |
-| limit=5, warm | ~1.5–2s |
-| limit=10, warm | ~2.5–3.5s |
-| Cold start (Render free tier) | +8–15s first request only |
+| limit=1–5, warm, reranking runs | ~1.5–2.5s |
+| limit=10, warm, reranking runs | ~2.5–3.5s |
+| Warm, vector search returns ≤ limit results | ~0.5–1s (reranking skipped) |
+| Cold start (Render free tier) | +30–45s container + JVM startup |
 
-Primary latency driver is GPT-4o-mini reranking, which scales O(limit) — not O(topK) — due to the "select top N" prompt design. See [DEVELOPER_GUIDE.md § Performance Configuration](./DEVELOPER_GUIDE.md#7-performance-configuration).
+**Render free tier note:** The frontend fires a silent `GET /actuator/health` ping the moment the page loads, triggering the cold-start process in the background. By the time most users finish reading the UI and submit a search, 10–20s of startup has already elapsed, reducing perceived wait to ~15–30s. On the first request after a cold start, the loader will display a *"Server is starting up..."* message after 10 seconds and time out cleanly after 45 seconds.
+
+Primary latency driver is GPT-4o-mini reranking, which scales O(limit) — not O(topK) — due to the "select top N" prompt design. Reranking is skipped entirely when the similarity filter returns fewer candidates than the requested limit. See [DEVELOPER_GUIDE.md § Performance Configuration](./DEVELOPER_GUIDE.md#7-performance-configuration).
 
 ---
 
