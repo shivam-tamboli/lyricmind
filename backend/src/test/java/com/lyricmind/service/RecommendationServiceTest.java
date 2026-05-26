@@ -16,7 +16,6 @@ import org.springframework.ai.document.Document;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -51,13 +50,22 @@ public class RecommendationServiceTest {
         testDocument = new Document("Test Content", metadata);
     }
 
-    @Test
-    void recommendSongs_ValidInput_ReturnsRecommendations() {
-        String mood = "happy";
-        int limit = 5;
+    // -----------------------------------------------------------------------
+    // Reranking path: candidates.size() > limit  →  LLM reranker fires
+    // -----------------------------------------------------------------------
 
-        List<Document> candidates = List.of(testDocument);
-        List<Document> reranked = List.of(testDocument);
+    @Test
+    void recommendSongs_WhenCandidatesExceedLimit_CallsRerankerAndReturnsResults() {
+        String mood = "happy";
+        int limit = 1;                     // limit=1 so that 2 candidates > limit
+
+        Map<String, Object> meta2 = new HashMap<>();
+        meta2.put("songId", "song456");
+        meta2.put("motivation", "Also relevant");
+        Document doc2 = new Document("Content 2", meta2);
+
+        List<Document> candidates = List.of(testDocument, doc2);  // size=2 > limit=1
+        List<Document> reranked   = List.of(testDocument);         // reranker picks 1
 
         when(semanticQueryComponent.similaritySearch(mood, limit)).thenReturn(candidates);
         when(rerankComponent.rerank(mood, candidates, limit)).thenReturn(reranked);
@@ -76,6 +84,79 @@ public class RecommendationServiceTest {
     }
 
     @Test
+    void recommendSongs_RerankFailure_FallbackToCandidateOrder() {
+        // candidates(2) > limit(1) → reranking fires but throws → fallback to candidates order
+        String mood = "happy";
+        int limit = 1;
+
+        Map<String, Object> meta2 = new HashMap<>();
+        meta2.put("songId", "song456");
+        Document doc2 = new Document("Content 2", meta2);
+
+        List<Document> candidates = List.of(testDocument, doc2);
+
+        when(semanticQueryComponent.similaritySearch(mood, limit)).thenReturn(candidates);
+        when(rerankComponent.rerank(mood, candidates, limit)).thenThrow(new RuntimeException("Rerank failed"));
+        when(songRepository.findAllById(anyList())).thenReturn(List.of(testSong));
+
+        List<SongRecommendationResponse> result = recommendationService.recommendSongs(mood, limit);
+
+        assertNotNull(result);
+        assertEquals(1, result.size());
+        verify(rerankComponent).rerank(mood, candidates, limit);
+    }
+
+    @Test
+    void recommendSongs_BatchLookup_UsesOneDbCallNotN() {
+        // candidates(2) > limit(1) → reranking fires and selects 1; DB is called once for that 1 ID
+        String mood = "chill";
+        int limit = 1;
+
+        Map<String, Object> meta2 = new HashMap<>();
+        meta2.put("songId", "song456");
+        meta2.put("motivation", "Matches chill vibe");
+        Document doc2 = new Document("Content 2", meta2);
+
+        List<Document> candidates = List.of(testDocument, doc2);  // size=2 > limit=1
+        List<Document> reranked   = List.of(testDocument);         // reranker picks testDocument
+
+        when(semanticQueryComponent.similaritySearch(mood, limit)).thenReturn(candidates);
+        when(rerankComponent.rerank(mood, candidates, limit)).thenReturn(reranked);
+        when(songRepository.findAllById(List.of("song123"))).thenReturn(List.of(testSong));
+
+        List<SongRecommendationResponse> result = recommendationService.recommendSongs(mood, limit);
+
+        assertEquals(1, result.size());
+        verify(songRepository, times(1)).findAllById(anyList());  // single batch — not N calls
+        verify(songRepository, never()).findById(anyString());
+    }
+
+    // -----------------------------------------------------------------------
+    // Skip-reranking path: candidates.size() <= limit  →  LLM not called
+    // -----------------------------------------------------------------------
+
+    @Test
+    void recommendSongs_WhenCandidatesAtOrBelowLimit_SkipsReranker() {
+        // candidates(1) <= limit(5) → reranker must NOT be called
+        String mood = "happy";
+        int limit = 5;
+
+        when(semanticQueryComponent.similaritySearch(mood, limit)).thenReturn(List.of(testDocument));
+        when(songRepository.findAllById(List.of("song123"))).thenReturn(List.of(testSong));
+
+        List<SongRecommendationResponse> result = recommendationService.recommendSongs(mood, limit);
+
+        assertNotNull(result);
+        assertEquals(1, result.size());
+        assertEquals("Test Song", result.get(0).title());
+        verifyNoInteractions(rerankComponent);
+    }
+
+    // -----------------------------------------------------------------------
+    // Edge-case / error paths
+    // -----------------------------------------------------------------------
+
+    @Test
     void recommendSongs_NoCandidatesFound_ReturnsEmptyList() {
         String mood = "unknown";
         int limit = 5;
@@ -92,44 +173,6 @@ public class RecommendationServiceTest {
     }
 
     @Test
-    void recommendSongs_RerankFailure_FallbackToCandidates() {
-        String mood = "happy";
-        int limit = 5;
-
-        List<Document> candidates = List.of(testDocument);
-
-        when(semanticQueryComponent.similaritySearch(mood, limit)).thenReturn(candidates);
-        when(rerankComponent.rerank(mood, candidates, limit)).thenThrow(new RuntimeException("Rerank failed"));
-        when(songRepository.findAllById(List.of("song123"))).thenReturn(List.of(testSong));
-
-        List<SongRecommendationResponse> result = recommendationService.recommendSongs(mood, limit);
-
-        assertNotNull(result);
-        assertEquals(1, result.size());
-        verify(semanticQueryComponent).similaritySearch(mood, limit);
-        verify(rerankComponent).rerank(mood, candidates, limit);
-        // Falls back to candidates order, still does DB lookup
-        verify(songRepository).findAllById(List.of("song123"));
-    }
-
-    @Test
-    void recommendSongs_SongNotFoundInDB_FiltersOut() {
-        String mood = "happy";
-        int limit = 5;
-
-        List<Document> candidates = List.of(testDocument);
-
-        when(semanticQueryComponent.similaritySearch(mood, limit)).thenReturn(candidates);
-        when(rerankComponent.rerank(mood, candidates, limit)).thenReturn(candidates);
-        when(songRepository.findAllById(List.of("song123"))).thenReturn(List.of());
-
-        List<SongRecommendationResponse> result = recommendationService.recommendSongs(mood, limit);
-
-        assertNotNull(result);
-        assertTrue(result.isEmpty());
-    }
-
-    @Test
     void recommendSongs_SemanticSearchFailure_ThrowsException() {
         String mood = "happy";
         int limit = 5;
@@ -143,53 +186,38 @@ public class RecommendationServiceTest {
     }
 
     @Test
+    void recommendSongs_SongNotFoundInDB_FiltersOut() {
+        // candidates(1) <= limit(5) → skip reranking; DB returns nothing → empty result
+        String mood = "happy";
+        int limit = 5;
+
+        when(semanticQueryComponent.similaritySearch(mood, limit)).thenReturn(List.of(testDocument));
+        when(songRepository.findAllById(List.of("song123"))).thenReturn(List.of());
+
+        List<SongRecommendationResponse> result = recommendationService.recommendSongs(mood, limit);
+
+        assertNotNull(result);
+        assertTrue(result.isEmpty());
+        verifyNoInteractions(rerankComponent);
+    }
+
+    @Test
     void recommendSongs_MissingSongId_FiltersOut() {
+        // candidates(1) <= limit(5) → skip reranking; doc has no songId → skipped, empty result
         String mood = "happy";
         int limit = 5;
 
         Map<String, Object> metadataWithoutSongId = new HashMap<>();
         metadataWithoutSongId.put("motivation", "Test motivation");
         Document docWithoutSongId = new Document("Test Content", metadataWithoutSongId);
-        List<Document> candidates = List.of(docWithoutSongId);
 
-        when(semanticQueryComponent.similaritySearch(mood, limit)).thenReturn(candidates);
-        when(rerankComponent.rerank(mood, candidates, limit)).thenReturn(candidates);
+        when(semanticQueryComponent.similaritySearch(mood, limit)).thenReturn(List.of(docWithoutSongId));
 
         List<SongRecommendationResponse> result = recommendationService.recommendSongs(mood, limit);
 
         assertNotNull(result);
         assertTrue(result.isEmpty());
-        // findAllById is called with empty list (no valid songIds) — no interactions expected
+        verifyNoInteractions(rerankComponent);
         verifyNoInteractions(songRepository);
-    }
-
-    @Test
-    void recommendSongs_BatchLookup_UsesFindsAllById() {
-        String mood = "chill";
-        int limit = 3;
-
-        Song song2 = new Song();
-        song2.setId("song456");
-        song2.setTitle("Song Two");
-        song2.setArtist("Artist Two");
-
-        Map<String, Object> meta2 = new HashMap<>();
-        meta2.put("songId", "song456");
-        meta2.put("motivation", "Matches chill vibe");
-        Document doc2 = new Document("Content 2", meta2);
-
-        List<Document> candidates = List.of(testDocument, doc2);
-
-        when(semanticQueryComponent.similaritySearch(mood, limit)).thenReturn(candidates);
-        when(rerankComponent.rerank(mood, candidates, limit)).thenReturn(candidates);
-        when(songRepository.findAllById(List.of("song123", "song456")))
-                .thenReturn(List.of(testSong, song2));
-
-        List<SongRecommendationResponse> result = recommendationService.recommendSongs(mood, limit);
-
-        assertEquals(2, result.size());
-        // Verify single batch call — not individual findById calls
-        verify(songRepository, times(1)).findAllById(anyList());
-        verify(songRepository, never()).findById(anyString());
     }
 }

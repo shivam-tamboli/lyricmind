@@ -52,10 +52,16 @@ public class RecommendationService {
                 return Collections.emptyList();
             }
 
-            // 2. LLM RERANK — asks GPT to select top `limit` from candidates
+            // 2. LLM RERANK — skip when candidates <= limit: nothing to rank, all will be selected anyway
             long t1 = System.currentTimeMillis();
-            List<Document> reranked = rerankCandidates(mood, candidates, limit);
-            log.info("[PERF] Reranking: {}ms — {} documents selected", System.currentTimeMillis() - t1, reranked.size());
+            List<Document> reranked;
+            if (candidates.size() <= limit) {
+                log.info("[PERF] Reranking skipped — {} candidates ≤ limit {}, using vector order", candidates.size(), limit);
+                reranked = candidates;
+            } else {
+                reranked = rerankCandidates(mood, candidates, limit);
+                log.info("[PERF] Reranking: {}ms — {} documents selected", System.currentTimeMillis() - t1, reranked.size());
+            }
 
             // 3. BATCH DB ENRICHMENT + RESPONSE MAPPING
             long t2 = System.currentTimeMillis();

@@ -1,8 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import MoodForm from "./components/MoodForm";
 import ResultPage from "./pages/ResultPage";
 import Loader from "./components/Loader";
-import { getRecommendations } from "./services/api";
+import { getRecommendations, pingServer } from "./services/api";
 import "./App.css";
 
 function App() {
@@ -11,6 +11,12 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showResults, setShowResults] = useState(false);
+
+  // Fire a lightweight health ping the moment the app mounts.
+  // On Render's free tier the backend spins down after inactivity; this kicks
+  // off the cold-start process while the user is still reading the UI,
+  // so the full recommendation request arrives at a warm server.
+  useEffect(() => { pingServer(); }, []);
 
   const handleSearch = async (moodText, limit) => {
     setLoading(true);
