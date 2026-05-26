@@ -1,16 +1,16 @@
 import React, { useState } from "react";
 
 const MOOD_SUGGESTIONS = [
-  { label: "😊 Happy", value: "happy" },
-  { label: "😢 Sad", value: "sad" },
-  { label: "⚡ Energetic", value: "energetic" },
-  { label: "😌 Chill", value: "chill and relaxed" },
-  { label: "💪 Motivated", value: "motivated and powerful" },
-  { label: "🥰 Romantic", value: "romantic and loving" },
-  { label: "😤 Angry", value: "angry and intense" },
-  { label: "🌙 Melancholic", value: "melancholic and nostalgic" },
+  { label: "💔 Heartbreak", value: "heartbreak and missing someone" },
+  { label: "😢 Sad", value: "sad and emotional" },
   { label: "🎉 Party", value: "party and celebration" },
-  { label: "🧘 Peaceful", value: "peaceful and calm" },
+  { label: "😎 Successful", value: "successful, confident, on top of the world" },
+  { label: "🌙 Late Night", value: "late night and lonely" },
+  { label: "💪 Motivated", value: "motivated and grinding for success" },
+  { label: "😔 Lonely", value: "lonely and feeling empty inside" },
+  { label: "🌑 Dark", value: "dark and troubled thoughts" },
+  { label: "🌊 Nostalgic", value: "nostalgic and reminiscing about the past" },
+  { label: "⚡ Energetic", value: "energetic and hype" },
 ];
 
 const MoodForm = ({ onSearch }) => {
