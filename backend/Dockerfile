@@ -17,5 +17,14 @@ COPY --from=build /build/target/lyricmind-0.0.1-SNAPSHOT.jar /app/app.jar
 
 EXPOSE 8080
 
-ENTRYPOINT ["sh", "-c", "java -Dserver.port=${PORT} -jar /app/app.jar"]
+# -XX:+UseContainerSupport: honour cgroup memory/cpu limits set by Render
+# -XX:MaxRAMPercentage: cap heap at 75% of container RAM instead of a hard -Xmx
+# -Djava.security.egd: swap SecureRandom from blocking /dev/random to /dev/urandom,
+#   which cuts several seconds off Spring Boot startup on Linux containers
+ENTRYPOINT ["sh", "-c", "java \
+  -Dserver.port=${PORT} \
+  -XX:+UseContainerSupport \
+  -XX:MaxRAMPercentage=75.0 \
+  -Djava.security.egd=file:/dev/./urandom \
+  -jar /app/app.jar"]
 
