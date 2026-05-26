@@ -30,10 +30,10 @@ public class SemanticQueryComponent {
             SearchRequest searchRequest = SearchRequest.builder()
                     .query(mood)
                     .topK(topK)
-                    .similarityThreshold(0.6)
+                    .similarityThreshold(0.5)
                     .build();
 
-            logger.info("Executing vector search with topK: {}, threshold: {}", searchRequest.getTopK(), searchRequest.getSimilarityThreshold());
+            logger.info("Executing vector search with topK: {}, similarityThreshold: {}", searchRequest.getTopK(), searchRequest.getSimilarityThreshold());
 
             List<Document> results = vectorStore.similaritySearch(searchRequest);
             
